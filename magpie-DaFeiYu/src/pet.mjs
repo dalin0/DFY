@@ -23,10 +23,55 @@ let lastInteractive;
 let failureCount = 0;
 window.petDiagnostics = { loaded: false, errors: [], played: [], transparent: false };
 
+// ── 语音（A 状态播报 / B 回复朗读）──────────────────────────────────────────
+const speech = 'speechSynthesis' in window ? window.speechSynthesis : null;
+const voices = [];
+function loadVoices() {
+  if (!speech) return;
+  const list = speech.getVoices();
+  if (!list.length) return;
+  voices.length = 0;
+  voices.push(...list);
+}
+if (speech) { loadVoices(); speech.onvoiceschanged = loadVoices; }
+
+function speak(text) {
+  if (!speech || !settings?.voice?.enabled) return;
+  const plain = String(text ?? '').replace(/\s+/g, ' ').trim();
+  if (!plain) return;
+  try {
+    const utterance = new SpeechSynthesisUtterance(plain.slice(0, 180));
+    utterance.lang = 'zh-CN';
+    utterance.rate = settings.voice.rate ?? 1;
+    utterance.volume = settings.voice.volume ?? 0.9;
+    const preferred = voices.find(voice => voice.name === settings.voice.name)
+      || voices.find(voice => /^zh/i.test(voice.lang))
+      || voices[0];
+    if (preferred) utterance.voice = preferred;
+    speech.cancel();
+    speech.speak(utterance);
+  } catch { /* 语音失败不影响界面 */ }
+}
+
+let lastRequestCount = 0;
+let lastAnnounceAt = 0;
+function announceActivity(requests) {
+  if (!settings?.voice?.enabled) { lastRequestCount = requests; return; }
+  if (requests > 0 && lastRequestCount === 0 && settings.voice.announceStart !== false
+      && Date.now() - lastAnnounceAt > 30000) {
+    lastAnnounceAt = Date.now();
+    speak(requests === 1 ? '有 1 个请求进行中' : `有 ${requests} 个请求进行中`);
+  } else if (requests === 0 && lastRequestCount > 0 && settings.voice.announceEnd) {
+    speak('请求都结束了');
+  }
+  lastRequestCount = requests;
+}
+
 function describe() {
   lights.dataset.visible = String(settings?.showBulbs !== false);
   renderQuota();
   const requests = activity.available && Number.isInteger(activity.activeCount) ? Math.max(0, activity.activeCount) : 0;
+  announceActivity(requests);
   const description = activity.available ? requests ? `Magpie：${requests} 个进行中的请求（含排队）` : activity.label : 'Magpie 未连接，状态未知';
   lights.title = description;
   lights.setAttribute('aria-label', description);
@@ -216,6 +261,45 @@ document.addEventListener('contextmenu', event => { event.preventDefault(); api.
 document.querySelector('#next-action').onclick = () => play(director.select(director.program(), true, true));
 document.querySelector('#pause').onclick = () => api.setting('paused', !settings.paused);
 document.querySelector('#menu').onclick = () => api.menu();
+
+// ── B：文本对话 + 朗读 ──────────────────────────────────────────────────────
+const bubble = document.querySelector('#bubble');
+const chatForm = document.querySelector('#chat-form');
+const chatInput = document.querySelector('#chat-input');
+let bubbleTimer;
+function showBubble(text, ms = 12000) {
+  bubble.textContent = String(text ?? '');
+  bubble.hidden = false;
+  clearTimeout(bubbleTimer);
+  if (ms) bubbleTimer = setTimeout(() => { bubble.hidden = true; }, ms);
+}
+function toggleChat(open) {
+  const next = open ?? chatForm.hidden;
+  chatForm.hidden = !next;
+  if (next) chatInput.focus();
+}
+document.querySelector('#chat').onclick = () => toggleChat();
+chatForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  const text = chatInput.value.trim();
+  if (!text) return;
+  chatInput.value = '';
+  chatForm.hidden = true;
+  showBubble('…她在想。', 0);
+  try {
+    const result = await api.chat(text);
+    if (result?.ok) {
+      showBubble(result.text);
+      if (settings.voice?.readReplies) speak(result.text);
+    } else showBubble(`没接上：${result?.error || '未知错误'}`);
+  } catch (error) {
+    showBubble(`没接上：${String(error?.message ?? error).slice(0, 80)}`);
+  }
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !chatForm.hidden) toggleChat(false);
+});
+api.on('chat:open', () => toggleChat(true));
 const dock = document.querySelector('#dock');
 new ResizeObserver(() => api.resize(dock.offsetTop + dock.offsetHeight + 8)).observe(dock);
 const initial = await api.getSnapshot();

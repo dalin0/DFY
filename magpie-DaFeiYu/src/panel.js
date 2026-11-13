@@ -103,6 +103,38 @@ function renderSettings(value) {
   settings = value;
   for (const input of document.querySelectorAll('[data-setting]')) input.checked = value[input.dataset.setting];
   document.querySelector('#size').value = value.size;
+  const voice = value.voice || {};
+  document.querySelector('#voice-enabled').checked = voice.enabled !== false;
+  document.querySelector('#voice-end').checked = Boolean(voice.announceEnd);
+  document.querySelector('#voice-replies').checked = voice.readReplies !== false;
+  document.querySelector('#voice-rate').value = voice.rate ?? 1;
+  if (document.querySelector('#voice-name').options.length === 0) fillVoices(voice.name || '');
+  document.querySelector('#voice-name').value = voice.name || '';
+  document.querySelector('#chat-model').value = value.chat?.model || '';
+}
+
+function fillVoices(selected) {
+  const select = document.querySelector('#voice-name');
+  select.replaceChildren();
+  const auto = document.createElement('option');
+  auto.value = '';
+  auto.textContent = '自动（中文音色）';
+  select.append(auto);
+  const list = (window.speechSynthesis?.getVoices?.() || []).slice();
+  const rank = voice => /^zh/i.test(voice.lang) ? 0 : 1;
+  list.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  for (const voice of list.slice(0, 60)) {
+    const option = document.createElement('option');
+    option.value = voice.name;
+    option.textContent = `${voice.name}（${voice.lang}）`;
+    select.append(option);
+  }
+  select.value = selected;
+}
+
+function pushVoice(patch) {
+  settings = { ...settings, voice: { ...(settings.voice || {}), ...patch } };
+  api.setting('voice', settings.voice);
 }
 
 function filterActions() {
@@ -129,7 +161,14 @@ document.querySelector('#repository').onclick = event => { event.preventDefault(
 document.querySelector('#search').oninput = filterActions;
 document.querySelector('#size').onchange = event => api.setting('size', Number(event.target.value));
 for (const input of document.querySelectorAll('[data-setting]')) input.onchange = () => api.setting(input.dataset.setting, input.checked);
+document.querySelector('#voice-enabled').onchange = event => pushVoice({ enabled: event.target.checked });
+document.querySelector('#voice-end').onchange = event => pushVoice({ announceEnd: event.target.checked });
+document.querySelector('#voice-replies').onchange = event => pushVoice({ readReplies: event.target.checked });
+document.querySelector('#voice-name').onchange = event => pushVoice({ name: event.target.value });
+document.querySelector('#voice-rate').oninput = event => pushVoice({ rate: Number(event.target.value) });
+document.querySelector('#chat-model').onchange = event => api.setting('chat', { model: event.target.value });
 for (const button of document.querySelectorAll('[data-play]')) button.onclick = () => api.play(button.dataset.play);
+if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = () => fillVoices(settings.voice?.name || '');
 api.on('activity', renderActivity);
 api.on('quota', renderQuota);
 api.on('settings', value => { renderSettings(value); if (lastQuota) renderQuota(lastQuota); });

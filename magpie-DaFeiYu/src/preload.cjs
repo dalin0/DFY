@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('pet', {
   menu: () => ipcRenderer.send('menu'),
   panel: () => ipcRenderer.send('panel'),
   refreshQuota: () => ipcRenderer.invoke('quota-refresh'),
+  chat: text => ipcRenderer.invoke('chat-send', text),
   setting: (key, value) => ipcRenderer.send('setting', key, value),
   drag: phase => ipcRenderer.send('drag', phase),
   interactive: value => ipcRenderer.send('interactive', value),
@@ -13,7 +14,7 @@ contextBridge.exposeInMainWorld('pet', {
   openRepository: () => ipcRenderer.send('open-repository'),
   resize: height => ipcRenderer.send('resize', height),
   on: (channel, callback) => {
-    if (!['snapshot', 'activity', 'quota', 'play', 'cursor', 'settings'].includes(channel)) return;
+    if (!['snapshot', 'activity', 'quota', 'play', 'cursor', 'settings', 'chat:open'].includes(channel)) return;
     ipcRenderer.on(channel, (_event, value) => callback(value));
   },
 });

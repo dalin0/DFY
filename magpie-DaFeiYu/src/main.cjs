@@ -14,8 +14,21 @@ const appIcon = path.join(__dirname, '../assets/tray-icon.png');
 const qaDirectory = process.env.DAFEIYU_QA_DIR || path.join(app.getPath('userData'), 'qa');
 const catalog = JSON.parse(readFileSync(path.join(__dirname, '../assets/catalog.json'), 'utf8'));
 const defaults = { size: 460, active: true, paused: false, locked: false, followTasks: true,
-  showBulbs: true, showQuotas: true, hiddenQuotas: {}, x: null, y: null };
-let settings = { ...defaults };
+  showBulbs: true, showQuotas: true, hiddenQuotas: {}, x: null, y: null,
+  voice: { enabled: true, announceStart: true, announceEnd: false, readReplies: true, name: '', rate: 1, volume: 0.9 },
+  chat: { model: 'deepseek/deepseek-flash' } };
+let settings = { ...defaults, voice: { ...defaults.voice }, chat: { ...defaults.chat } };
+
+function sanitizeVoice(value) {
+  const next = {};
+  for (const key of ['enabled', 'announceStart', 'announceEnd', 'readReplies']) {
+    if (typeof value[key] === 'boolean') next[key] = value[key];
+  }
+  if (typeof value.name === 'string') next.name = value.name.trim().slice(0, 120);
+  if (Number.isFinite(value.rate)) next.rate = Math.min(2, Math.max(0.5, value.rate));
+  if (Number.isFinite(value.volume)) next.volume = Math.min(1, Math.max(0, value.volume));
+  return next;
+}
 let petWindow;
 let panelWindow;
 let tray;
@@ -104,6 +117,11 @@ function play(name) {
 function changeSetting(key, value) {
   if (['active', 'paused', 'locked', 'followTasks', 'showBulbs', 'showQuotas'].includes(key) && typeof value === 'boolean') settings[key] = value;
   else if (key === 'size' && [360, 460, 560].includes(value)) settings.size = value;
+  else if (key === 'voice' && value && typeof value === 'object' && !Array.isArray(value)) Object.assign(settings.voice, sanitizeVoice(value));
+  else if (key === 'chat' && value && typeof value === 'object' && typeof value.model === 'string') {
+    const model = value.model.trim().slice(0, 120);
+    if (model) settings.chat.model = model;
+  }
   else if (key === 'hiddenQuotas' && value && typeof value === 'object' && !Array.isArray(value)) {
     settings.hiddenQuotas = Object.fromEntries(Object.entries(value)
       .filter(([id, hidden]) => typeof id === 'string' && id.length <= 240 && hidden === true)
@@ -130,6 +148,9 @@ function menuItems() {
     { label: '额度与设置…', click: showPanel },
     { label: '打开 Magpie', click: openMagpie },
     { label: '跟随 Magpie 请求', type: 'checkbox', checked: settings.followTasks, click: item => changeSetting('followTasks', item.checked) },
+    { label: '状态语音播报', type: 'checkbox', checked: settings.voice.enabled, click: item => changeSetting('voice', { ...settings.voice, enabled: item.checked }) },
+    { label: '朗读她的回复', type: 'checkbox', checked: settings.voice.readReplies, click: item => changeSetting('voice', { ...settings.voice, readReplies: item.checked }) },
+    { label: '和她说句话…', click: () => { showPet(); petWindow?.webContents.send('chat:open'); } },
     { label: '显示请求灯泡', type: 'checkbox', checked: settings.showBulbs, click: item => changeSetting('showBulbs', item.checked) },
     { label: '显示账号额度', type: 'checkbox', checked: settings.showQuotas, click: item => changeSetting('showQuotas', item.checked) },
     { label: '随机玩耍', type: 'checkbox', checked: settings.active, click: item => changeSetting('active', item.checked) },
@@ -220,6 +241,8 @@ else {
           .slice(0, 500));
       }
       if ([360, 460, 560].includes(saved.size)) settings.size = saved.size;
+      if (saved.voice && typeof saved.voice === 'object' && !Array.isArray(saved.voice)) Object.assign(settings.voice, sanitizeVoice(saved.voice));
+      if (saved.chat && typeof saved.chat === 'object' && typeof saved.chat.model === 'string' && saved.chat.model.trim()) settings.chat.model = saved.chat.model.trim().slice(0, 120);
       if (Number.isFinite(saved.x) && Number.isFinite(saved.y)) { settings.x = saved.x; settings.y = saved.y; }
     } catch {}
     if (!smoke) saveSettings();
@@ -245,6 +268,21 @@ else {
     const trusted = event => [petWindow, panelWindow].some(window => window && !window.isDestroyed() && event.sender === window.webContents);
     ipcMain.handle('snapshot', event => trusted(event) ? snapshot() : null);
     ipcMain.handle('quota-refresh', event => trusted(event) ? refreshQuota() : null);
+    ipcMain.handle('chat-send', async (event, text) => {
+      if (!trusted(event)) return { ok: false, error: '不可信来源' };
+      const prompt = String(text ?? '').trim();
+      if (!prompt || prompt.length > 400) return { ok: false, error: '请输入 1~400 个字' };
+      try {
+        const { askMagpie } = await import('./magpie.mjs');
+        const answer = await askMagpie([
+          { role: 'system', content: '你是住在桌边的蓝色大肥鱼（鲸鱼娘），用简短、俏皮、亲近的中文回答，尽量不超过 60 个字。' },
+          { role: 'user', content: prompt },
+        ], { model: settings.chat.model });
+        return { ok: true, text: answer };
+      } catch (error) {
+        return { ok: false, error: String(error?.message ?? error).slice(0, 200) };
+      }
+    });
     ipcMain.on('panel', event => { if (trusted(event)) showPanel(); });
     ipcMain.on('menu', event => { if (trusted(event)) Menu.buildFromTemplate(menuItems()).popup({ window: petWindow }); });
     ipcMain.on('play', (event, name) => { if (trusted(event)) play(name); });

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { ActivityReader, chooseActivity, normalizeCards, quotaNeedsRefresh, readQuota, readLocal, refreshLocal, resolveKey, activeAccountsForRoute } from '../src/magpie.mjs';
+import { ActivityReader, askMagpie, chooseActivity, normalizeCards, quotaNeedsRefresh, readQuota, readLocal, refreshLocal, resolveKey, activeAccountsForRoute } from '../src/magpie.mjs';
 import { accountPercentages, compactQuotaLabel, quotaEntries } from '../src/quota-display.mjs';
 import { clampPetPosition } from '../src/position.cjs';
 import { AnimationDirector } from '../src/animation.mjs';
@@ -364,4 +364,18 @@ test('refreshLocal asks Magpie to re-read quotas with a POST', async () => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].method, 'POST');
   assert.equal(calls[0].url, 'http://127.0.0.1:1234/v1/magpie/quotas/refresh');
+});
+
+test('askMagpie posts the configured model and trims the reply', async () => {
+  const calls = [];
+  const fetcher = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    return { ok: true, text: async () => JSON.stringify({ choices: [{ message: { content: '  嗨  ' } }] }) };
+  };
+  const answer = await askMagpie([{ role: 'user', content: 'hi' }], { model: 'deepseek/deepseek-flash', port: 1, key: 'k'.repeat(20), fetcher });
+  assert.equal(answer, '嗨');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'http://127.0.0.1:1/v1/chat/completions');
+  assert.equal(JSON.parse(calls[0].init.body).model, 'deepseek/deepseek-flash');
+  assert.equal(calls[0].init.method, 'POST');
 });

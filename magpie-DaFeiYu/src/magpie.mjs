@@ -73,7 +73,23 @@ export function quotaNeedsRefresh(cards, now = Date.now()) {
   return !newest || now - newest > QUOTA_REFRESH_AFTER_MS;
 }
 
-const unknown = () => ({ state: 'unknown', label: 'Magpie 未连接或状态暂不可读', available: false, activeCount: 0, observedAt: Date.now() });
+/** 让本机 Magpie 网关转一次对话请求，返回回复文本（渲染进程不直连，避免 CORS 与 CSP）。 */
+export async function askMagpie(messages, { model = 'deepseek/deepseek-flash', port = resolvePort(), key = resolveKey(), fetcher = fetch, timeoutMs = 60000, maxBytes = 400000 } = {}) {
+  const response = await fetcher(`http://127.0.0.1:${port}/v1/chat/completions`, {
+    method: 'POST', redirect: 'error', signal: AbortSignal.timeout(timeoutMs),
+    headers: { 'User-Agent': `Magpie-DaFeiYu/${version}`, Authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ model, messages, stream: false }),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const text = await response.text();
+  if (text.length > maxBytes) throw new Error('回复过大');
+  const data = JSON.parse(text);
+  const answer = String(data?.choices?.[0]?.message?.content ?? '').trim();
+  if (!answer) throw new Error('Magpie 返回了空回复');
+  return answer;
+}
+
+const unknown = () => ({ state: 'unknown' , label: 'Magpie 未连接或状态暂不可读', available: false, activeCount: 0, observedAt: Date.now() });
 const count = value => Number.isInteger(value) && value >= 0;
 
 export function chooseActivity(data, now = Date.now()) {
