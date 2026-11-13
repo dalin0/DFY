@@ -89,7 +89,49 @@ export async function askMagpie(messages, { model = 'deepseek/deepseek-flash', p
   return answer;
 }
 
-const unknown = () => ({ state: 'unknown' , label: 'Magpie 未连接或状态暂不可读', available: false, activeCount: 0, observedAt: Date.now() });
+/** 流式版对话：边收边把增量交给调用方，返回完整回复。 */
+export async function askMagpieStream(messages, { model = 'deepseek/deepseek-flash', port = resolvePort(), key = resolveKey(), fetcher = fetch, timeoutMs = 180000, onDelta = () => {} } = {}) {
+  const response = await fetcher(`http://127.0.0.1:${port}/v1/chat/completions`, {
+    method: 'POST', redirect: 'error', signal: AbortSignal.timeout(timeoutMs),
+    headers: { 'User-Agent': `Magpie-DaFeiYu/${version}`, Authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ model, messages, stream: true }),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let full = '';
+  const consume = (line) => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('data:')) return;
+    const payload = trimmed.slice(5).trim();
+    if (!payload || payload === '[DONE]') return;
+    try {
+      const data = JSON.parse(payload);
+      const delta = data?.choices?.[0]?.delta?.content ?? '';
+      if (delta) { full += delta; onDelta(delta); }
+    } catch { /* 忽略坏帧 */ }
+  };
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) consume(line);
+    }
+    buffer += decoder.decode();
+    for (const line of buffer.split('\n')) consume(line);
+  } finally {
+    try { await reader.cancel(); } catch {}
+  }
+  const answer = full.trim();
+  if (!answer) throw new Error('Magpie 返回了空回复');
+  return answer;
+}
+
+const unknown = () => ({ state: 'unknown'  , label: 'Magpie 未连接或状态暂不可读', available: false, activeCount: 0, observedAt: Date.now() });
 const count = value => Number.isInteger(value) && value >= 0;
 
 export function chooseActivity(data, now = Date.now()) {

@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld('pet', {
   openRepository: () => ipcRenderer.send('open-repository'),
   resize: height => ipcRenderer.send('resize', height),
   on: (channel, callback) => {
-    if (!['snapshot', 'activity', 'quota', 'play', 'cursor', 'settings', 'chat:open'].includes(channel)) return;
+    if (!['snapshot', 'activity', 'quota', 'play', 'cursor', 'settings', 'chat:open', 'chat-chunk', 'chat-done'].includes(channel)) return;
     ipcRenderer.on(channel, (_event, value) => callback(value));
   },
 });

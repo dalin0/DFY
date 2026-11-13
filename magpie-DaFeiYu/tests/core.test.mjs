@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { ActivityReader, askMagpie, chooseActivity, normalizeCards, quotaNeedsRefresh, readQuota, readLocal, refreshLocal, resolveKey, activeAccountsForRoute } from '../src/magpie.mjs';
+import { ActivityReader, askMagpie, askMagpieStream, chooseActivity, normalizeCards, quotaNeedsRefresh, readQuota, readLocal, refreshLocal, resolveKey, activeAccountsForRoute } from '../src/magpie.mjs';
 import { accountPercentages, compactQuotaLabel, quotaEntries } from '../src/quota-display.mjs';
 import { clampPetPosition } from '../src/position.cjs';
 import { AnimationDirector } from '../src/animation.mjs';
@@ -378,4 +378,20 @@ test('askMagpie posts the configured model and trims the reply', async () => {
   assert.equal(calls[0].url, 'http://127.0.0.1:1/v1/chat/completions');
   assert.equal(JSON.parse(calls[0].init.body).model, 'deepseek/deepseek-flash');
   assert.equal(calls[0].init.method, 'POST');
+});
+
+test('askMagpieStream emits deltas and returns the whole reply', async () => {
+  const frames = ['data: {"choices":[{"delta":{"content":"你"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"好呀"}}]}\n\n', 'data: [DONE]\n\n'];
+  const encoder = new TextEncoder();
+  let index = 0;
+  const fetcher = async () => ({ ok: true, body: { getReader: () => ({
+    read: async () => index < frames.length ? { done: false, value: encoder.encode(frames[index++]) } : { done: true },
+    cancel: async () => {},
+  }) } });
+  const deltas = [];
+  const text = await askMagpieStream([{ role: 'user', content: 'hi' }],
+    { port: 1, key: 'k'.repeat(20), fetcher, onDelta: delta => deltas.push(delta) });
+  assert.equal(text, '你好呀');
+  assert.deepEqual(deltas, ['你', '好呀']);
 });

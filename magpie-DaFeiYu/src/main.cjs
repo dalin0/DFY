@@ -18,6 +18,8 @@ const defaults = { size: 460, active: true, paused: false, locked: false, follow
   voice: { enabled: true, announceStart: true, announceEnd: false, readReplies: true, name: '', rate: 1, volume: 0.9 },
   chat: { model: 'deepseek/deepseek-flash' } };
 let settings = { ...defaults, voice: { ...defaults.voice }, chat: { ...defaults.chat } };
+const CHAT_PERSONA = '你是住在桌边的蓝色大肥鱼（鲸鱼娘），一个有点懒但很亲近的伙伴。像真人闲聊那样说话：短句、口语、带一点语气词（呀、啦、嘛、呢、诶、嗯），可以有情绪起伏。不要列表、不要 Markdown、不要表情符号、不要客套开场白、不要解释自己是 AI。一般 1~3 句，控制在 50 字以内，除非用户要求多说。';
+const chatHistory = [];
 
 function sanitizeVoice(value) {
   const next = {};
@@ -272,15 +274,25 @@ else {
       if (!trusted(event)) return { ok: false, error: '不可信来源' };
       const prompt = String(text ?? '').trim();
       if (!prompt || prompt.length > 400) return { ok: false, error: '请输入 1~400 个字' };
+      const sender = event.sender;
+      const send = (channel, payload) => { if (!sender.isDestroyed()) sender.send(channel, payload); };
+      chatHistory.push({ role: 'user', content: prompt });
+      if (chatHistory.length > 12) chatHistory.splice(0, chatHistory.length - 12);
       try {
-        const { askMagpie } = await import('./magpie.mjs');
-        const answer = await askMagpie([
-          { role: 'system', content: '你是住在桌边的蓝色大肥鱼（鲸鱼娘），用简短、俏皮、亲近的中文回答，尽量不超过 60 个字。' },
-          { role: 'user', content: prompt },
-        ], { model: settings.chat.model });
+        const { askMagpieStream } = await import('./magpie.mjs');
+        const answer = await askMagpieStream([
+          { role: 'system', content: CHAT_PERSONA },
+          ...chatHistory,
+        ], { model: settings.chat.model, onDelta: delta => send('chat-chunk', delta) });
+        chatHistory.push({ role: 'assistant', content: answer });
+        if (chatHistory.length > 12) chatHistory.splice(0, chatHistory.length - 12);
+        send('chat-done', { ok: true, text: answer });
         return { ok: true, text: answer };
       } catch (error) {
-        return { ok: false, error: String(error?.message ?? error).slice(0, 200) };
+        const message = String(error?.message ?? error).slice(0, 200);
+        chatHistory.pop();
+        send('chat-done', { ok: false, error: message });
+        return { ok: false, error: message };
       }
     });
     ipcMain.on('panel', event => { if (trusted(event)) showPanel(); });

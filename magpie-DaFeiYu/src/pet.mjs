@@ -35,20 +35,52 @@ function loadVoices() {
 }
 if (speech) { loadVoices(); speech.onvoiceschanged = loadVoices; }
 
-function speak(text) {
+// Apple 较新的中文音色语气比婷婷自然，按偏好从上往下挑。
+const NATURAL_VOICES = [/^Flo/i, /^Eddy/i, /^Shelley/i, /^Sandy/i, /^Reed/i, /^Rocko/i, /^Grandma/i, /^Grandpa/i, /^Meijia/i, /^Tingting/i];
+function pickVoice() {
+  const wanted = voices.find(voice => voice.name === settings?.voice?.name);
+  if (wanted) return wanted;
+  const chinese = voices.filter(voice => /^zh/i.test(voice.lang));
+  for (const pattern of NATURAL_VOICES) {
+    const hit = chinese.find(voice => pattern.test(voice.name));
+    if (hit) return hit;
+  }
+  return chinese[0] || voices[0];
+}
+
+function prosodyFor(text) {
+  const sentence = String(text ?? '').trim();
+  let pitch = 1;
+  let rate = 1;
+  if (/[?？]\s*$/.test(sentence)) { pitch += 0.12; rate *= 0.98; }
+  else if (/[!！]\s*$/.test(sentence)) { pitch += 0.16; rate *= 1.05; }
+  else if (/[~～]\s*$/.test(sentence)) { pitch += 0.08; rate *= 1.02; }
+  if (/[哈嘿呜哎呀诶嘛呢啦]/u.test(sentence)) pitch += 0.04;
+  if (sentence.length > 40) rate *= 0.97;
+  return { pitch, rate };
+}
+
+function cleanReply(text) {
+  return String(text ?? '')
+    .replace(/[*_`#>]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^(大肥鱼|小肥鱼)[：:]\s*/, '')
+    .trim();
+}
+
+function speak(text, prosody = {}) {
   if (!speech || !settings?.voice?.enabled) return;
-  const plain = String(text ?? '').replace(/\s+/g, ' ').trim();
+  const plain = cleanReply(text).slice(0, 300);
   if (!plain) return;
   try {
-    const utterance = new SpeechSynthesisUtterance(plain.slice(0, 180));
+    const utterance = new SpeechSynthesisUtterance(plain);
     utterance.lang = 'zh-CN';
-    utterance.rate = settings.voice.rate ?? 1;
+    utterance.rate = Math.min(2, Math.max(0.5, (settings.voice.rate ?? 1) * (prosody.rate ?? 1)));
+    utterance.pitch = Math.min(2, Math.max(0.5, prosody.pitch ?? 1));
     utterance.volume = settings.voice.volume ?? 0.9;
-    const preferred = voices.find(voice => voice.name === settings.voice.name)
-      || voices.find(voice => /^zh/i.test(voice.lang))
-      || voices[0];
-    if (preferred) utterance.voice = preferred;
-    speech.cancel();
+    const voice = pickVoice();
+    if (voice) utterance.voice = voice;
+    window.petDiagnostics.lastVoice = voice?.name ?? null;
     speech.speak(utterance);
   } catch { /* 语音失败不影响界面 */ }
 }
@@ -233,6 +265,7 @@ api.on('cursor', point => {
 
 stage.addEventListener('pointerdown', event => {
   if (event.button !== 0) return;
+  speech?.cancel();
   pointerStart = { x: event.screenX, y: event.screenY };
   stage.setPointerCapture(event.pointerId);
 });
@@ -262,44 +295,80 @@ document.querySelector('#next-action').onclick = () => play(director.select(dire
 document.querySelector('#pause').onclick = () => api.setting('paused', !settings.paused);
 document.querySelector('#menu').onclick = () => api.menu();
 
-// ── B：文本对话 + 朗读 ──────────────────────────────────────────────────────
+// ── B：文本对话 + 朗读（流式，逐句开口）────────────────────────────────────
 const bubble = document.querySelector('#bubble');
 const chatForm = document.querySelector('#chat-form');
 const chatInput = document.querySelector('#chat-input');
 let bubbleTimer;
+let streamed = '';
+let spokenUpTo = 0;
+let fillerTimer;
+
 function showBubble(text, ms = 12000) {
   bubble.textContent = String(text ?? '');
   bubble.hidden = false;
   clearTimeout(bubbleTimer);
   if (ms) bubbleTimer = setTimeout(() => { bubble.hidden = true; }, ms);
 }
+
 function toggleChat(open) {
   const next = open ?? chatForm.hidden;
   chatForm.hidden = !next;
   if (next) chatInput.focus();
 }
-document.querySelector('#chat').onclick = () => toggleChat();
+
+function resetStream() { streamed = ''; spokenUpTo = 0; }
+
+function drainSpeech(final) {
+  const rest = streamed.slice(spokenUpTo);
+  if (!rest) return;
+  if (final) { spokenUpTo = streamed.length; speak(rest, prosodyFor(rest)); return; }
+  const match = rest.match(/^([\s\S]*[。！？!?～\n])/);
+  if (!match) return;
+  spokenUpTo += match[1].length;
+  speak(match[1], prosodyFor(match[1]));
+}
+
+api.on('chat-chunk', delta => {
+  clearTimeout(fillerTimer);
+  streamed += delta;
+  showBubble(cleanReply(streamed) || '…', 0);
+  drainSpeech(false);
+});
+api.on('chat-done', result => {
+  clearTimeout(fillerTimer);
+  if (result?.ok) {
+    if (result.text) streamed = result.text;
+    showBubble(cleanReply(streamed), 15000);
+    if (settings.voice?.readReplies) drainSpeech(true);
+  } else {
+    showBubble(`没接上：${result?.error || '未知错误'}`);
+  }
+});
 chatForm.addEventListener('submit', async event => {
   event.preventDefault();
   const text = chatInput.value.trim();
   if (!text) return;
   chatInput.value = '';
   chatForm.hidden = true;
+  speech?.cancel();
+  resetStream();
   showBubble('…她在想。', 0);
-  try {
-    const result = await api.chat(text);
-    if (result?.ok) {
-      showBubble(result.text);
-      if (settings.voice?.readReplies) speak(result.text);
-    } else showBubble(`没接上：${result?.error || '未知错误'}`);
-  } catch (error) {
-    showBubble(`没接上：${String(error?.message ?? error).slice(0, 80)}`);
+  if (settings.voice?.enabled) {
+    fillerTimer = setTimeout(() => {
+      if (!streamed) { showBubble('嗯……', 0); speak('嗯……'); }
+    }, 1200);
   }
+  try { await api.chat(text); } catch (error) { showBubble(`没接上：${String(error?.message ?? error).slice(0, 80)}`); }
 });
+document.querySelector('#chat').onclick = () => toggleChat();
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && !chatForm.hidden) toggleChat(false);
+  if (event.key !== 'Escape') return;
+  if (!chatForm.hidden) toggleChat(false);
+  else speech?.cancel();
 });
 api.on('chat:open', () => toggleChat(true));
+
 const dock = document.querySelector('#dock');
 new ResizeObserver(() => api.resize(dock.offsetTop + dock.offsetHeight + 8)).observe(dock);
 const initial = await api.getSnapshot();
