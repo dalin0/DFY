@@ -1,0 +1,53 @@
+{
+  "name": "magpie-dafeiyu",
+  "version": "0.1.5",
+  "description": "Magpie page for the DaFeiYu desktop pet (a separate app you download). Request bulbs, quota percentages and API balances for Windows and macOS. Artwork from PC2005-cloud/dsh-pet, non-commercial.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wolfvoid/magpie-DaFeiYu.git"
+  },
+  "homepage": "https://github.com/wolfvoid/magpie-DaFeiYu#readme",
+  "author": "wolfvoid",
+  "license": "MIT",
+  "keywords": [
+    "magpie",
+    "macos",
+    "windows",
+    "desktop-pet",
+    "dafeiyu",
+    "deepseek",
+    "electron",
+    "quota-monitor"
+  ],
+  "files": [
+    "magpie",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses"
+  ],
+  "magpie": {
+    "page": {
+      "title": "DaFeiYu",
+      "titles": {
+        "zh": "蓝色大肥鱼",
+        "zh-TW": "藍色大肥魚"
+      },
+      "file": "magpie/index.html",
+      "icon": "magpie/icon.png"
+    },
+    "permissions": []
+  },
+  "scripts": {
+    "build": "node scripts/prepare.mjs && esbuild src/vendor/pickers.ts --format=esm --outfile=src/pickers.mjs",
+    "start": "electron src/main.cjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node scripts/check.mjs",
+    "package": "node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "electron": "43.3.0",
+    "@electron/packager": "20.3.0",
+    "esbuild": "0.28.2",
+    "jsonc-parser": "3.3.1"
+  }
+}

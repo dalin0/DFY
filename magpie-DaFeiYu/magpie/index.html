@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DaFeiYu · Magpie</title>
+  <link rel="stylesheet" href="page.css">
+  <script src="_magpie/bridge.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <img src="icon.png" width="88" height="88" alt="">
+      <div>
+        <p class="eyebrow">WINDOWS · MACOS × MAGPIE</p>
+        <h1 data-i18n="title">DaFeiYu desktop pet</h1>
+        <p data-i18n="tagline">Magpie's live status, as a companion on your desktop.</p>
+      </div>
+    </header>
+    <section class="notice">
+      <h2 data-i18n="noticeTitle">This page is only a guide</h2>
+      <p data-i18n="notice">The desktop pet is a separate app that you download yourself. Installing this plugin does not install, download or start the app.</p>
+    </section>
+    <section>
+      <h2 data-i18n="featuresTitle">What the app shows</h2>
+      <ul>
+        <li data-i18n="feature1">One bulb per request in progress.</li>
+        <li data-i18n="feature2">Quota percentages for subscriptions and balances for API wallets, each with its own switch.</li>
+        <li data-i18n="feature3">106 transparent animations; drag it to a screen edge.</li>
+      </ul>
+    </section>
+    <section>
+      <h2 data-i18n="installTitle">Install the app</h2>
+      <ol>
+        <li data-i18n="step1">Open the release page in your browser and download the ZIP for your system: Windows 10+ x64, or Apple Silicon Mac with macOS 12+.</li>
+        <li data-i18n="step2">macOS: unzip and drag the app to Applications. Windows: unzip and run BlueDaFeiYu.exe, or install.ps1 for a per-user install.</li>
+        <li data-i18n="step3">Start the app while Magpie runs on this computer.</li>
+      </ol>
+      <label for="download" data-i18n="downloadLabel">Release page (select and copy)</label>
+      <input id="download" readonly value="https://github.com/wolfvoid/magpie-DaFeiYu/releases/latest">
+      <p class="note" data-i18n="signing">The macOS build is ad-hoc signed only, not notarized; the Windows build is unsigned. Check the source before opening it the first time.</p>
+    </section>
+    <section>
+      <h2 data-i18n="privacyTitle">How it talks to Magpie</h2>
+      <p data-i18n="privacy">The app reads Magpie on this computer only (127.0.0.1): request status every 2 seconds, quota cards every 30 seconds. It sends the token magpie-dafeiyu, or MAGPIE_API_KEY when you set one. This page reads nothing.</p>
+    </section>
+    <footer>
+      <p data-i18n="credits">Character and animations: PC2005-cloud/dsh-pet, non-commercial use only. Gateway: yetone/magpie.</p>
+      <p data-i18n="unofficial">An independent community project, not an official Magpie plugin.</p>
+    </footer>
+  </main>
+  <script src="page.js"></script>
+</body>
+</html>

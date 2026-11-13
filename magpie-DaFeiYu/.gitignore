@@ -1,0 +1,13 @@
+node_modules
+dist/
+.runtime/
+qa/
+assets/webm
+assets/app-icon.ico
+assets/tray-icon.png
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+
