@@ -41,6 +41,38 @@ export async function readLocal(route, { port = resolvePort(), key = resolveKey(
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
+/** 主动让 Magpie 去上游重读一次额度/余额（POST /v1/magpie/quotas/refresh，返回与 /quotas/cards 同形的 data）。 */
+export async function refreshLocal(route, { port = resolvePort(), key = resolveKey(), fetcher = fetch, timeoutMs = 20000 } = {}) {
+  const response = await fetcher(`http://127.0.0.1:${port}${route}`, {
+    method: 'POST', redirect: 'error', signal: AbortSignal.timeout(timeoutMs),
+    headers: { 'User-Agent': `Magpie-DaFeiYu/${version}`, Authorization: `Bearer ${key}` },
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
+}
+
+// Magpie 只在它自己认为该刷新时才向上游读余额；桌宠此前只读缓存，于是一直显示上一次的数字。
+// 超过这个时长就替用户触发一次 refresh，避免余额「冻住」。可用环境变量覆盖，0 表示每次都刷新。
+const QUOTA_REFRESH_AFTER_MS = Number.isFinite(Number(process.env.DAFEIYU_QUOTA_REFRESH_AFTER_MS))
+  ? Math.max(0, Number(process.env.DAFEIYU_QUOTA_REFRESH_AFTER_MS)) : 300000;
+const QUOTA_REFRESH_MIN_GAP_MS = 60000;
+let lastQuotaRefreshAt = 0;
+
+function newestCardReadAt(cards) {
+  let newest = 0;
+  for (const card of Array.isArray(cards?.data) ? cards.data : []) {
+    const at = Date.parse(card?.readAt);
+    if (Number.isFinite(at) && at > newest) newest = at;
+  }
+  return newest;
+}
+
+/** 缓存是否已经老到值得让 Magpie 重新去上游读一次。 */
+export function quotaNeedsRefresh(cards, now = Date.now()) {
+  const newest = newestCardReadAt(cards);
+  return !newest || now - newest > QUOTA_REFRESH_AFTER_MS;
+}
+
 const unknown = () => ({ state: 'unknown', label: 'Magpie 未连接或状态暂不可读', available: false, activeCount: 0, observedAt: Date.now() });
 const count = value => Number.isInteger(value) && value >= 0;
 
@@ -135,7 +167,15 @@ export function normalizeCards(data, now = Date.now()) {
 
 export async function readQuota(options = {}) {
   try {
-    const cards = await readLocal('/v1/magpie/quotas/cards', options);
+    let cards = await readLocal('/v1/magpie/quotas/cards', options);
+    const now = Date.now();
+    if (quotaNeedsRefresh(cards, now) && now - lastQuotaRefreshAt > QUOTA_REFRESH_MIN_GAP_MS) {
+      lastQuotaRefreshAt = now;
+      try {
+        const refreshed = await refreshLocal('/v1/magpie/quotas/refresh', options);
+        if (Array.isArray(refreshed?.data) && refreshed.data.length) cards = refreshed;
+      } catch { /* 刷新失败就继续用缓存，下次再试 */ }
+    }
     const quota = normalizeCards(cards);
     try {
       const usage = await readLocal('/v1/magpie/usage?period=today', options);

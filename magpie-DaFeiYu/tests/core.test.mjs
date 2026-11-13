@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { ActivityReader, chooseActivity, normalizeCards, readQuota, readLocal, resolveKey, activeAccountsForRoute } from '../src/magpie.mjs';
+import { ActivityReader, chooseActivity, normalizeCards, quotaNeedsRefresh, readQuota, readLocal, refreshLocal, resolveKey, activeAccountsForRoute } from '../src/magpie.mjs';
 import { accountPercentages, compactQuotaLabel, quotaEntries } from '../src/quota-display.mjs';
 import { clampPetPosition } from '../src/position.cjs';
 import { AnimationDirector } from '../src/animation.mjs';
@@ -345,4 +345,23 @@ test('one percentage per account uses minimum window and red requires fresh acti
   assert.equal(accountPercentages(quota, activity, now + 31000)[0].text, '—%');
   assert.deepEqual(accountPercentages(quota, activity, now + 610000).map(badge => badge.text), ['—%', '12%']);
   assert.ok(accountPercentages(quota, { ...activity, available: false }, now).every(badge => !badge.active));
+});
+
+test('quota cards older than the refresh window are considered stale', () => {
+  const fresh = { data: [{ readAt: new Date(now).toISOString() }] };
+  const stale = { data: [{ readAt: new Date(now - 6 * 60 * 1000).toISOString() }] };
+  assert.equal(quotaNeedsRefresh(fresh, now), false);
+  assert.equal(quotaNeedsRefresh(stale, now), true);
+  assert.equal(quotaNeedsRefresh({ data: [] }, now), true);
+  assert.equal(quotaNeedsRefresh({}, now), true);
+});
+
+test('refreshLocal asks Magpie to re-read quotas with a POST', async () => {
+  const calls = [];
+  const fetcher = async (url, init = {}) => { calls.push({ url: String(url), method: init.method }); return { ok: true, json: async () => ({ data: [] }) }; };
+  const body = await refreshLocal('/v1/magpie/quotas/refresh', { port: 1234, key: 'k'.repeat(20), fetcher });
+  assert.deepEqual(body, { data: [] });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].method, 'POST');
+  assert.equal(calls[0].url, 'http://127.0.0.1:1234/v1/magpie/quotas/refresh');
 });
