@@ -2,6 +2,7 @@
 > 角色动画与素材来自 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)，**仅限非商用**；展示与再分发须保留原作者署名。
 > 本仓库在此基础上的改动：
 > - 余额/额度过期时自动让 Magpie 重读一次（`POST /v1/magpie/quotas/refresh`），不再长期停在旧余额；阈值默认 5 分钟，可用 `DAFEIYU_QUOTA_REFRESH_AFTER_MS` 覆盖（毫秒，0 = 每次都刷新）。
+> - 请求灯泡放大并加了「N 个请求」文字标签，请求进行中一眼可见。
 > - 语音相关功能开发中。
 
 <div align="center">

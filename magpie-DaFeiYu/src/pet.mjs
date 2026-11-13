@@ -38,6 +38,12 @@ function describe() {
       bulb.classList.toggle('lit', requests > 0);
       lights.append(bulb);
     }
+    if (requests > 0) {
+      const label = document.createElement('span');
+      label.className = 'bulb-count';
+      label.textContent = `${requests} 个请求`;
+      lights.prepend(label);
+    }
     if (requests > 8) {
       const more = document.createElement('span');
       more.className = 'bulb-more';
